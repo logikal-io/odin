@@ -1,0 +1,2 @@
+# odin
+Logikal system initialization
