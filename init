@@ -1,0 +1,81 @@
+#!/bin/bash
+abort() { echo 'Aborted' && exit 1; }
+error() {
+    if [[ $1 != "" ]]; then
+        echo "$0: error: $1"
+    fi
+    echo "usage: $0 [-u github_username] [-e work_email]"
+    exit 1
+}
+key_id() {
+    echo "$(
+        gpg --batch --list-secret-keys --with-colons "$1" 2>/dev/null \
+            | grep '^sec:' | cut -d ':' -f 5
+    )"
+}
+
+echo -e '\nSystem initialization\n'
+
+# Processing command-line arguments
+while getopts u:e: OPT; do
+    case "${OPT}" in
+        u) user="${OPTARG}" ;;
+        e) email="${OPTARG}" ;;
+        \?) error ;;
+    esac
+done
+if [[ -z "${user}" ]]; then read -p 'Your GitHub username: ' user; fi
+if [[ -z "${user}" ]]; then error 'Invalid username'; fi
+if [[ -z "${email}" ]]; then read -p 'Your work email address: ' email; fi
+if [[ -z "${email}" ]]; then error 'Invalid email address'; fi
+
+echo 'Updating system'
+sudo apt update && sudo apt upgrade --yes || abort
+
+echo 'Installing packages'
+sudo apt install --yes \
+    git \
+    python3-pip python3-venv  # needed for pyorbs
+pip3 install --upgrade pyorbs
+
+# Generating SSH key
+# Note: using ed25519-sk with our hardware security keys would be better, however, it has a poor
+# user experience with GNOME Shell (see https://gitlab.gnome.org/GNOME/gnome-shell/-/issues/2598)
+keyfile=~/.ssh/id_ed25519
+if [[ ! -f "${keyfile}" ]]; then
+    ssh-keygen -f "${keyfile}" -t ed25519 -C "${email}" || abort
+fi
+echo -e '\nSSH public key (add under https://github.com/settings/keys):\n'
+cat "${keyfile}.pub"
+
+# Generating GPG key
+key_id="$(key_id "${email}")"
+if [[ -z "${key_id}" ]]; then
+    gpg --full-generate-key || abort
+    key_id="$(key_id "${email}")"
+fi
+echo -e '\nGPG public key (add under https://github.com/settings/keys):\n'
+gpg --batch --armor --export "${key_id}"
+
+echo -e '\nConfiguring git'
+git config --global user.name "${user}"
+git config --global user.email "${email}"
+git config --global user.signingkey "${key_id}"
+
+echo 'Creating projects folder'
+mkdir -p ~/Projects/logikal
+cd ~/Projects/logikal
+
+echo -e '\nInstalling Chrome'
+if [[ ! -d "ansible-public-playbooks" ]]; then
+    git clone https://github.com/logikal-io/ansible-public-playbooks.git
+    cd ansible-public-playbooks
+else
+    cd ansible-public-playbooks
+    git pull
+fi
+orb=~/.local/bin/orb
+if [[ -z "$(${orb} --list | grep '^ansible-public')" ]]; then ${orb} -m ansible-public; fi
+${orb} ansible-public -c './run-roles -r chrome'
+
+echo 'Initialization complete'
