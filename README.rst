@@ -9,4 +9,5 @@ You can initialize your system by simply executing the following command in your
 
 .. code-block:: shell
 
-    wget https://raw.githubusercontent.com/logikal-io/odin/main/init -O - | bash
+    wget https://raw.githubusercontent.com/logikal-io/odin/main/init
+    bash init
